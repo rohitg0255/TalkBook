@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Draw and Save Recording with Audio</title>
+    <style>
+      canvas {
+        border: 1px solid #000;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="drawingCanvas" width="500" height="300"></canvas>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+    <button id="playRecording">Play Recording</button>
+    <button id="saveRecording">Save Recording</button>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const canvas = document.getElementById("drawingCanvas");
+        const context = canvas.getContext("2d");
+        let isDrawing = false;
+        let recording = [];
+        let audioChunks = [];
+        let sound;
+
+        canvas.addEventListener("mousedown", startDrawing);
+        canvas.addEventListener("mousemove", draw);
+        canvas.addEventListener("mouseup", stopDrawing);
+        canvas.addEventListener("mouseout", stopDrawing);
+
+        let mediaRecorder;
+        let audioStream;
+
+        document
+          .getElementById("startRecording")
+          .addEventListener("click", async function () {
+            recording = []; // Clear previous recording
+            audioChunks = [];
+
+            document
+              .getElementById("stopRecording")
+              .removeAttribute("disabled");
+            document
+              .getElementById("startRecording")
+              .setAttribute("disabled", "disabled");
+            document
+              .getElementById("playRecording")
+              .setAttribute("disabled", "disabled");
+            document
+              .getElementById("saveRecording")
+              .setAttribute("disabled", "disabled");
+
+            try {
+              audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+              });
+              mediaRecorder = new MediaRecorder(audioStream);
+
+              mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                  audioChunks.push(event.data);
+                }
+              };
+
+              mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                sound = audioBlob;
+                recording.push({ type: "audio", data: audioBlob });
+              };
+
+              mediaRecorder.start();
+            } catch (error) {
+              console.error("Error accessing microphone:", error);
+            }
+          });
+
+        document
+          .getElementById("stopRecording")
+          .addEventListener("click", function () {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+              mediaRecorder.stop();
+              audioStream.getTracks().forEach((track) => track.stop());
+            }
+
+            document
+              .getElementById("stopRecording")
+              .setAttribute("disabled", "disabled");
+            document
+              .getElementById("startRecording")
+              .removeAttribute("disabled");
+            document
+              .getElementById("playRecording")
+              .removeAttribute("disabled");
+            document
+              .getElementById("saveRecording")
+              .removeAttribute("disabled");
+          });
+
+        function startDrawing(e) {
+          isDrawing = true;
+          draw(e); // Draw a dot at the starting point
+        }
+
+        function draw(e) {
+          if (!isDrawing) return;
+
+          context.lineWidth = 2;
+          context.lineCap = "round";
+          context.strokeStyle = "#000"; // Black color
+
+          context.lineTo(
+            e.clientX - canvas.offsetLeft,
+            e.clientY - canvas.offsetTop
+          );
+          context.stroke();
+          context.beginPath();
+          context.moveTo(
+            e.clientX - canvas.offsetLeft,
+            e.clientY - canvas.offsetTop
+          );
+
+          recording.push({
+            type: "draw",
+            x: e.clientX - canvas.offsetLeft,
+            y: e.clientY - canvas.offsetTop,
+          });
+        }
+
+        function stopDrawing() {
+          isDrawing = false;
+          context.beginPath();
+        }
+
+        document
+          .getElementById("playRecording")
+          .addEventListener("click", async function () {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            playAudio(sound);
+            for (const action of recording) {
+              if (action.type === "draw") {
+                await sleep(10); // Adjust the delay between drawing actions
+                context.lineWidth = 2;
+                context.lineCap = "round";
+                context.strokeStyle = "#000"; // Black color
+
+                context.lineTo(action.x, action.y);
+                context.stroke();
+                context.beginPath();
+                context.moveTo(action.x, action.y);
+              }
+              //   else if (action.type === "audio") {
+              //   }
+            }
+          });
+
+        async function playAudio(audioBlob) {
+          return new Promise((resolve) => {
+            const audio = new Audio(URL.createObjectURL(audioBlob));
+            audio.addEventListener("ended", resolve);
+            audio.play();
+          });
+        }
+
+        document
+          .getElementById("saveRecording")
+          .addEventListener("click", function () {
+            const jsonString = JSON.stringify(recording);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "drawingRecording.json";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          });
+
+        function sleep(ms) {
+          return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+      });
+    </script>
+  </body>
+</html>
